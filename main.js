@@ -769,23 +769,20 @@ let frameCount = 0;
 
 async function initHandTracking() {
     try {
-        console.log('Starting improved hand tracking initialization...');
+        console.log('Starting MediaPipe Hand Landmarker initialization...');
         
-        // Load MediaPipe Hands with fallback versions
+        // Load MediaPipe tasks with latest API
         console.log('Loading MediaPipe libraries...');
-        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js');
-        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js');
-        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9');
         
-        // Wait for global classes to be available
+        // Wait for MediaPipe to be available
         await new Promise(resolve => setTimeout(resolve, 1500));
         
-        // Check if classes are available
-        if (typeof Hands === 'undefined') {
-            throw new Error('MediaPipe Hands failed to load. Check your internet connection.');
+        if (typeof window.MediaPipeVision === 'undefined') {
+            throw new Error('MediaPipe Vision failed to load.');
         }
 
-        // Create video element with proper attributes
+        // Create video element
         video = document.createElement('video');
         video.id = 'handTrackingVideo';
         video.style.display = 'none';
@@ -794,25 +791,12 @@ async function initHandTracking() {
         video.setAttribute('muted', 'true');
         document.body.appendChild(video);
 
-        // Get camera stream with fallback options
+        // Get camera stream
         console.log('Requesting camera access...');
-        let stream;
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: { 
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    facingMode: 'user'
-                },
-                audio: false
-            });
-        } catch (e) {
-            console.warn('High resolution failed, trying standard resolution...');
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user' },
-                audio: false
-            });
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false
+        });
         
         console.log('Camera access granted');
         video.srcObject = stream;
@@ -822,80 +806,69 @@ async function initHandTracking() {
             video.onloadedmetadata = () => {
                 video.play().then(resolve).catch(reject);
             };
-            setTimeout(reject, 5000); // Timeout after 5 seconds
+            setTimeout(reject, 5000);
         });
 
-        console.log('Initializing MediaPipe Hands model...');
-        // Initialize MediaPipe Hands with improved settings
-        const hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`;
+        console.log('Creating HandLandmarker...');
+        const { HandLandmarker, FilesetResolver } = window.MediaPipeVision;
+        
+        const baseOptions = {
+            modelAssetPath: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm`
+        };
+        
+        const landmarker = await HandLandmarker.createFromOptions(
+            await FilesetResolver.forVisionTasks(baseOptions.modelAssetPath),
+            {
+                baseOptions,
+                numHands: 2,
+                minHandDetectionConfidence: 0.1,
+                minHandPresenceConfidence: 0.1,
+                minTrackingConfidence: 0.1,
+                runningMode: 'VIDEO'
             }
-        });
+        );
 
-        hands.setOptions({
-            maxNumHands: 2,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.6, // Increased for better tracking
-            minTrackingConfidence: 0.5
-        });
-
-        let detectionCount = 0;
-        hands.onResults((results) => {
-            detectionCount++;
-            if (detectionCount % 1 === 0) { // Log every 30 detections
-                console.log(`Hand detection running (frame ${detectionCount}), hands detected: ${results.multiHandLandmarks?.length || 0}`);
-            }
-            updateGestureFromHands(results);
-        });
-
-        handTracking = hands;
+        handTracking = landmarker;
         handTrackingActive = true;
         updateCameraStatus(true);
-        console.log('MediaPipe Hands initialized successfully');
+        console.log('HandLandmarker ready, starting detection...');
 
-        // Start camera processing with manual frame loop
-        console.log('Starting manual frame processing...');
-        processHandTrackingFrames();
-        console.log('Frame processing started');
+        // Process frames using requestAnimationFrame
+        let frameCount = 0;
+        function detectHands() {
+            if (!handTrackingActive || !handTracking || !video || video.readyState !== 2) {
+                requestAnimationFrame(detectHands);
+                return;
+            }
 
+            frameCount++;
+            try {
+                const results = handTracking.detectForVideo(video, performance.now());
+                if (frameCount % 30 === 0) {
+                    const count = results.landmarks?.length || 0;
+                    console.log(`[Hand Detection] Frame ${frameCount}: ${count} hand(s)`);
+                }
+                updateGestureFromHands(results);
+            } catch (error) {
+                console.warn('Detection error:', error.message);
+            }
+
+            requestAnimationFrame(detectHands);
+        }
+
+        detectHands();
+        console.log('Hand detection started');
         hideLoadingOverlay();
         hideCameraPrompt();
     } catch (error) {
         console.error('Hand tracking initialization failed:', error);
-        console.error('Error details:', error.message, error.stack);
         handTrackingActive = false;
         updateCameraStatus(false, error.message || 'Initialization failed');
         hideLoadingOverlay();
-        showCameraError(error.message || 'Failed to initialize hand tracking. Using mouse/keyboard instead.');
+        showCameraError('Hand tracking setup failed. Using mouse/keyboard controls.');
     }
 }
 
-// Manual frame processing loop - more reliable than Camera API
-function processHandTrackingFrames() {
-    if (!handTrackingActive || !handTracking || !video) {
-        if (handTrackingActive) {
-            requestAnimationFrame(processHandTrackingFrames);
-        }
-        return;
-    }
-
-    frameCount++;
-    
-    // Process every FRAME_SKIP frames for performance
-    if (frameCount % FRAME_SKIP === 0) {
-        try {
-            // Check video is ready and has data
-            if (video.readyState === 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-                handTracking.send({ image: video });
-            }
-        } catch (error) {
-            console.warn('Frame processing error (will recover):', error.message);
-        }
-    }
-
-    requestAnimationFrame(processHandTrackingFrames);
-}
 
 // Helper function to load scripts with retry logic
 function loadScript(src) {
@@ -1036,31 +1009,29 @@ function detectSwipe(landmarks) {
     }
 }
 
-// Update gesture state from MediaPipe Hands results with improved tracking
+// Update gesture state from MediaPipe results
 function updateGestureFromHands(results) {
     const hands = [];
     
-    // Validate results structure
-    if (!results) {
+    if (!results || typeof results !== 'object') {
         return;
     }
 
-    // Extract hands with confidence filtering
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const handednessArr = results.multiHandedness || [];
-        results.multiHandLandmarks.forEach((lm, idx) => {
-            // Validate landmarks - need exactly 21 landmarks for a hand
-            if (!lm || lm.length < 21) {
-                return;
-            }
-            
-            const handed = handednessArr[idx];
-            const label = handed?.label || handed?.displayName || `Hand${idx}`;
-            const score = handed?.score ?? 0.95;
-            
-            // Accept hand if has confidence score (very permissive)
-            if (score > 0) {
-                hands.push({ landmarks: lm, label, score });
+    // Support both old API (multiHandLandmarks) and new API (landmarks)
+    const landmarks = results.landmarks || results.multiHandLandmarks || [];
+    const handedness = results.handedness || results.multiHandedness || [];
+    
+    if (Array.isArray(landmarks) && landmarks.length > 0) {
+        landmarks.forEach((lm, idx) => {
+            if (Array.isArray(lm) && lm.length >= 21) {
+                const hand = handedness[idx] || { categoryName: `Hand${idx}` };
+                const label = hand.categoryName || `Hand${idx}`;
+                
+                hands.push({ 
+                    landmarks: lm, 
+                    label, 
+                    score: hand.score ?? 0.99
+                });
             }
         });
     }
@@ -1069,7 +1040,7 @@ function updateGestureFromHands(results) {
         handDetected = false;
         updateGestureStatus(false);
         // Smoothly return to neutral state
-        handOpenness = lerp(handOpenness, 0.5, 0.02);
+        handOpenness = lerp(handOpenness, 0.5, 0.01);
         gestureState.type = 'open';
         gestureState.value = handOpenness;
         updateGestureEffects();
