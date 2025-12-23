@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture-Controlled 3D Particle System</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- Control Panel -->
+    <div id="controlPanel" class="control-panel">
+        <div class="panel-header">
+            <h2>Particle Controls</h2>
+            <button id="togglePanel" class="icon-btn">−</button>
+        </div>
+        
+        <div class="panel-content">
+            <div class="section-heading">Patterns &amp; Shapes</div>
+            <!-- Pattern Selection -->
+            <div class="control-group">
+                <label title="Choose particle distribution pattern">Pattern:</label>
+                <select id="patternSelect" class="control-input" title="Particle pattern">
+                    <option value="sphere">Sphere</option>
+                    <option value="torus">Torus</option>
+                    <option value="cube">Cube</option>
+                    <option value="spiral">Spiral</option>
+                    <option value="flower">Flower</option>
+                    <option value="wave">Wave</option>
+                    <option value="explosion">Explosion</option>
+                    <option value="galaxy">Galaxy</option>
+                </select>
+            </div>
+
+            <!-- Particle Shape -->
+            <div class="control-group">
+                <label title="Choose particle mesh shape">Particle Shape:</label>
+                <select id="particleShapeSelect" class="control-input" title="Particle shape">
+                    <option value="point">Point</option>
+                    <option value="sphere">Sphere</option>
+                    <option value="box">Box</option>
+                    <option value="ring">Ring</option>
+                </select>
+            </div>
+
+            <!-- Shape Size (only visible for non-point shapes) -->
+            <div class="control-group" id="shapeSizeGroup" style="display: none;">
+                <label>Shape Size:</label>
+                <input type="range" id="shapeSize" min="0.1" max="2.0" value="0.5" step="0.1" class="slider">
+                <span id="shapeSizeValue">0.5</span>
+            </div>
+
+            <div class="section-heading">Color &amp; Gradients</div>
+            <!-- Color/Gradient Toggle -->
+            <div class="control-group">
+                <label title="Blend between two colors">
+                    <input type="checkbox" id="useGradientToggle" style="margin-right: 8px;" title="Toggle gradient mode">
+                    Use Gradient
+                </label>
+            </div>
+
+            <!-- Single Color Picker (when gradient disabled) -->
+            <div class="control-group" id="singleColorGroup">
+                <label title="Pick a single particle color">Particle Color:</label>
+                <input type="color" id="colorPicker" value="#00ffff" class="color-picker" title="Pick particle color">
+            </div>
+
+            <!-- Gradient Controls (when gradient enabled) -->
+            <div class="control-group" id="gradientGroup" style="display: none;">
+                <label title="Gradient interpolation style">Gradient Type:</label>
+                <select id="gradientTypeSelect" class="control-input" title="Gradient type">
+                    <option value="radial">Radial</option>
+                    <option value="linear">Linear</option>
+                    <option value="noise">Noise</option>
+                </select>
+                <label style="margin-top: 10px;">Color 1:</label>
+                <input type="color" id="gradientColor1" value="#00ffff" class="color-picker">
+                <label style="margin-top: 10px;">Color 2:</label>
+                <input type="color" id="gradientColor2" value="#ff00ff" class="color-picker">
+            </div>
+
+            <!-- Particle Count -->
+            <div class="control-group">
+                <label>Particle Count:</label>
+                <input type="range" id="particleCount" min="1000" max="50000" value="10000" step="1000" class="slider">
+                <span id="particleCountValue">10000</span>
+            </div>
+
+            <!-- Particle Size -->
+            <div class="control-group">
+                <label>Particle Size:</label>
+                <input type="range" id="particleSize" min="1" max="10" value="3" step="0.5" class="slider">
+                <span id="particleSizeValue">3</span>
+            </div>
+
+            <!-- Gesture Sensitivity -->
+            <div class="control-group">
+                <label>Gesture Sensitivity:</label>
+                <input type="range" id="gestureSensitivity" min="0.1" max="2.0" value="1.0" step="0.1" class="slider">
+                <span id="gestureSensitivityValue">1.0</span>
+            </div>
+
+            <div class="section-heading">Gestures &amp; Roles</div>
+            <!-- Multiple Hands Toggle -->
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="multipleHandsToggle" style="margin-right: 8px;">
+                    Two Hands Mode
+                </label>
+                <small style="color: #888; font-size: 12px;">Hand1: Rotation | Hand2: Scale</small>
+            </div>
+            <div class="control-group" id="swapRolesGroup" style="display: none;">
+                <label>
+                    <input type="checkbox" id="swapHandRoles" style="margin-right: 8px;">
+                    Swap Roles (Hand1 Scale, Hand2 Rotation)
+                </label>
+            </div>
+
+            <!-- Webcam Preview -->
+            <div class="control-group">
+                <label title="Show webcam preview with hand labels">
+                    <input type="checkbox" id="enablePreviewToggle" style="margin-right: 8px;">
+                    Show Webcam Preview
+                </label>
+            </div>
+
+            <div class="section-heading">Effects</div>
+            <!-- Particle Trails -->
+            <div class="control-group">
+                <label title="Draw fading lines behind moving particles">
+                    <input type="checkbox" id="enableTrailsToggle" style="margin-right: 8px;" title="Toggle particle trails">
+                    Enable Trails
+                </label>
+            </div>
+            <div class="control-group" id="trailLengthGroup" style="display: none;">
+                <label>Trail Length:</label>
+                <input type="range" id="trailLength" min="2" max="20" value="5" step="1" class="slider">
+                <span id="trailLengthValue">5</span>
+            </div>
+
+            <!-- Particle Connections -->
+            <div class="control-group">
+                <label title="Draw lines between nearby particles">
+                    <input type="checkbox" id="enableConnectionsToggle" style="margin-right: 8px;" title="Toggle particle connections">
+                    Enable Connections
+                </label>
+            </div>
+            <div class="control-group" id="connectionDistanceGroup" style="display: none;">
+                <label>Connection Distance:</label>
+                <input type="range" id="connectionDistance" min="1" max="20" value="5" step="0.5" class="slider">
+                <span id="connectionDistanceValue">5</span>
+            </div>
+
+            <div class="section-heading">Physics &amp; Performance</div>
+            <!-- Physics -->
+            <div class="control-group" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <label title="Enable gravity, wind, and collisions">
+                    <input type="checkbox" id="enablePhysicsToggle" style="margin-right: 8px;" title="Toggle physics simulation">
+                    Enable Physics
+                </label>
+            </div>
+            <div class="control-group" id="physicsGroup" style="display: none;">
+                <label>Gravity:</label>
+                <input type="range" id="gravity" min="-1" max="1" value="0" step="0.1" class="slider">
+                <span id="gravityValue">0</span>
+                
+                <label style="margin-top: 10px;">Wind Strength:</label>
+                <input type="range" id="windStrength" min="0" max="2" value="0" step="0.1" class="slider">
+                <span id="windStrengthValue">0</span>
+                
+                <label style="margin-top: 10px;">Damping:</label>
+                <input type="range" id="damping" min="0.8" max="1.0" value="0.95" step="0.01" class="slider">
+                <span id="dampingValue">0.95</span>
+            </div>
+
+            <!-- Performance Guard -->
+            <div class="control-group">
+                <label title="Auto-reduce effects if FPS drops">
+                    <input type="checkbox" id="enablePerfGuard" style="margin-right: 8px;" title="Enable performance guard">
+                    Performance Guard (auto-throttle)
+                </label>
+                <small style="color: #888; font-size: 12px;">Protect FPS by reducing effects</small>
+            </div>
+
+            <div class="section-heading">Status</div>
+            <!-- Camera Status -->
+            <div class="control-group">
+                <div id="cameraStatus" class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span>Camera: Not Started</span>
+                </div>
+            </div>
+
+            <!-- Gesture Status -->
+            <div class="control-group">
+                <div id="gestureStatus" class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span>Gesture: No Hand Detected</span>
+                </div>
+            </div>
+
+            <div class="section-heading">Presets</div>
+            <!-- Presets Section -->
+            <div class="control-group" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <label style="font-weight: 600;">Presets</label>
+                <input type="text" id="presetName" placeholder="Preset name" class="control-input" style="margin-top: 8px;">
+                <button id="savePresetBtn" class="primary-btn" style="width: 100%; margin-top: 8px; padding: 8px;">Save Preset</button>
+                
+                <select id="presetSelect" class="control-input" style="margin-top: 10px;">
+                    <option value="">-- Select Preset --</option>
+                </select>
+                <div style="display: flex; gap: 5px; margin-top: 8px;">
+                    <button id="loadPresetBtn" class="secondary-btn" style="flex: 1; padding: 8px;">Load</button>
+                    <button id="deletePresetBtn" class="secondary-btn" style="flex: 1; padding: 8px;">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Button -->
+    <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">
+        ⛶
+    </button>
+
+    <!-- Canvas Container -->
+    <canvas id="particleCanvas"></canvas>
+
+    <!-- Preview Overlay -->
+    <div id="previewContainer" class="preview-container hidden">
+        <canvas id="previewCanvas" width="240" height="180"></canvas>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p id="loadingMessage">Requesting Camera Access...</p>
+            <p style="font-size: 14px; margin-top: 10px; opacity: 0.7;">Please allow camera access to enable hand gesture controls</p>
+        </div>
+    </div>
+
+    <!-- Camera Permission Prompt -->
+    <div id="cameraPrompt" class="camera-prompt hidden">
+        <div class="prompt-content">
+            <h3>Camera Access Required</h3>
+            <p>This application needs camera access to detect hand gestures for controlling particles.</p>
+            <button id="enableCameraBtn" class="primary-btn">Enable Camera</button>
+            <button id="skipCameraBtn" class="secondary-btn">Skip (Use Mouse/Keyboard)</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="main.js"></script>
+</body>
+</html>
+
