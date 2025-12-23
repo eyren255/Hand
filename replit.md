@@ -3,7 +3,7 @@
 ## Project Overview
 A stunning interactive 3D particle system that responds to hand gestures captured via webcam. Users can control particle patterns, colors, physics, and visual effects through an intuitive control panel while manipulating the visualization with hand gestures.
 
-## Recent Improvements (Latest Session)
+## Recent Improvements (Latest Session - Hand Tracking Enhanced)
 
 ### UI/UX Enhancements
 - **Modern Design System**: Upgraded control panel with gradient backgrounds and improved visual hierarchy
@@ -25,10 +25,20 @@ A stunning interactive 3D particle system that responds to hand gestures capture
   - Limited check radius to nearby particles only
 - **Better Memory Management**: Efficient buffer geometry handling
 
+### Hand Tracking System Improvements
+- **Manual Frame Processing**: Replaced unreliable Camera API with robust requestAnimationFrame loop
+- **Better Script Loading**: Added retry logic for loading MediaPipe libraries (up to 3 attempts)
+- **Improved Detection**: Lowered confidence thresholds (0.6 detection, 0.4 tracking) for more responsive hand recognition
+- **Error Recovery**: Graceful error handling with detailed logging for debugging
+- **Multi-Resolution Support**: Fallback from HD to standard resolution if needed
+- **Adaptive Gesture Detection**: Better hand openness calculation for natural particle control
+- **Frame Skipping**: Optimized frame processing (every 2nd frame) for performance/responsiveness balance
+- **Detailed Logging**: Added debug logging to track hand detection, frame processing, and errors
+
 ### Gesture & Animation Improvements
 - Prepared infrastructure for easing functions (easeOutCubic, easeInOutQuad)
 - Enhanced lerp interpolation for smoother transitions
-- Better gesture detection smoothing
+- Better gesture detection smoothing with improved landmark validation
 
 ## Current Features
 

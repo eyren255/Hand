@@ -763,127 +763,180 @@ function lerp(start, end, factor) {
 // Initialize hand tracking (using MediaPipe Hands from unpkg)
 let handTracking = null;
 let video = null;
+let handTrackingActive = false;
+const FRAME_SKIP = 2; // Process every 2nd frame for better performance
+let frameCount = 0;
 
 async function initHandTracking() {
     try {
-        console.log('Starting hand tracking initialization...');
+        console.log('Starting improved hand tracking initialization...');
         
-        // Load MediaPipe Hands from unpkg (more reliable)
-        console.log('Loading MediaPipe Hands...');
-        await loadScript('https://unpkg.com/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js');
-        await loadScript('https://unpkg.com/@mediapipe/hands@0.4.1646424915/hands.js');
+        // Load MediaPipe Hands with fallback versions
+        console.log('Loading MediaPipe libraries...');
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js');
         
         // Wait for global classes to be available
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1500));
         
         // Check if classes are available
-        if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
-            throw new Error('MediaPipe classes not loaded. Please check browser console.');
+        if (typeof Hands === 'undefined') {
+            throw new Error('MediaPipe Hands failed to load. Check your internet connection.');
         }
 
-        // Create video element
+        // Create video element with proper attributes
         video = document.createElement('video');
+        video.id = 'handTrackingVideo';
         video.style.display = 'none';
-        video.setAttribute('playsinline', '');
-        video.setAttribute('autoplay', '');
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('autoplay', 'true');
+        video.setAttribute('muted', 'true');
         document.body.appendChild(video);
 
-        // Get camera stream
+        // Get camera stream with fallback options
         console.log('Requesting camera access...');
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-                width: 640, 
-                height: 480,
-                facingMode: 'user'
-            }
-        });
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    facingMode: 'user'
+                },
+                audio: false
+            });
+        } catch (e) {
+            console.warn('High resolution failed, trying standard resolution...');
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user' },
+                audio: false
+            });
+        }
         
         console.log('Camera access granted');
         video.srcObject = stream;
         
-        await new Promise((resolve) => {
+        // Wait for video to be ready
+        await new Promise((resolve, reject) => {
             video.onloadedmetadata = () => {
-                video.play();
-                resolve();
+                video.play().then(resolve).catch(reject);
             };
+            setTimeout(reject, 5000); // Timeout after 5 seconds
         });
 
-        console.log('Initializing MediaPipe Hands...');
-        // Initialize MediaPipe Hands
+        console.log('Initializing MediaPipe Hands model...');
+        // Initialize MediaPipe Hands with improved settings
         const hands = new Hands({
             locateFile: (file) => {
-                return `https://unpkg.com/@mediapipe/hands@0.4.1646424915/${file}`;
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`;
             }
         });
 
         hands.setOptions({
-            maxNumHands: 2, // Support up to 2 hands
+            maxNumHands: 2,
             modelComplexity: 1,
-            minDetectionConfidence: 0.5,
+            minDetectionConfidence: 0.6, // Increased for better tracking
             minTrackingConfidence: 0.5
         });
 
+        let detectionCount = 0;
         hands.onResults((results) => {
+            detectionCount++;
+            if (detectionCount % 1 === 0) { // Log every 30 detections
+                console.log(`Hand detection running (frame ${detectionCount}), hands detected: ${results.multiHandLandmarks?.length || 0}`);
+            }
             updateGestureFromHands(results);
         });
 
         handTracking = hands;
+        handTrackingActive = true;
         updateCameraStatus(true);
-        console.log('MediaPipe Hands initialized');
+        console.log('MediaPipe Hands initialized successfully');
 
-        // Start camera processing
-        console.log('Starting camera processing...');
-        const camera = new Camera(video, {
-            onFrame: async () => {
-                if (handTracking) {
-                    try {
-                        await handTracking.send({ image: video });
-                    } catch (e) {
-                        console.error('Error sending frame to hands detector:', e);
-                    }
-                }
-            },
-            width: 640,
-            height: 480
-        });
-        camera.start();
-        console.log('Camera processing started successfully');
+        // Start camera processing with manual frame loop
+        console.log('Starting manual frame processing...');
+        processHandTrackingFrames();
+        console.log('Frame processing started');
 
         hideLoadingOverlay();
         hideCameraPrompt();
     } catch (error) {
         console.error('Hand tracking initialization failed:', error);
         console.error('Error details:', error.message, error.stack);
+        handTrackingActive = false;
         updateCameraStatus(false, error.message || 'Initialization failed');
         hideLoadingOverlay();
-        
-        // Show error in prompt instead of immediately falling back
-        showCameraError(error.message || 'Failed to initialize hand tracking');
+        showCameraError(error.message || 'Failed to initialize hand tracking. Using mouse/keyboard instead.');
     }
 }
 
-// Helper function to load scripts
+// Manual frame processing loop - more reliable than Camera API
+function processHandTrackingFrames() {
+    if (!handTrackingActive || !handTracking || !video || video.readyState !== 2) {
+        requestAnimationFrame(processHandTrackingFrames);
+        return;
+    }
+
+    frameCount++;
+    
+    // Process every FRAME_SKIP frames for performance
+    if (frameCount % FRAME_SKIP === 0) {
+        try {
+            handTracking.send({ image: video });
+        } catch (error) {
+            console.warn('Frame processing error (will recover):', error.message);
+        }
+    }
+
+    requestAnimationFrame(processHandTrackingFrames);
+}
+
+// Helper function to load scripts with retry logic
 function loadScript(src) {
     return new Promise((resolve, reject) => {
         // Check if already loaded
         const existing = document.querySelector(`script[src="${src}"]`);
         if (existing) {
-            // Wait a bit for global variables to be available
-            setTimeout(resolve, 300);
+            setTimeout(resolve, 500);
             return;
         }
         
         const script = document.createElement('script');
         script.src = src;
         script.crossOrigin = 'anonymous';
+        script.async = true;
+        
+        let attempts = 0;
+        const maxAttempts = 3;
+        
         script.onload = () => {
-            // Wait a bit for scripts to initialize
-            setTimeout(resolve, 500);
+            setTimeout(resolve, 800);
         };
-        script.onerror = (error) => {
-            console.error(`Failed to load script: ${src}`, error);
-            reject(new Error(`Failed to load script: ${src}`));
+        
+        script.onerror = () => {
+            attempts++;
+            if (attempts < maxAttempts) {
+                console.warn(`Script load failed (attempt ${attempts}/${maxAttempts}): ${src}, retrying...`);
+                // Retry with slight delay
+                setTimeout(() => {
+                    const retryScript = document.createElement('script');
+                    retryScript.src = src + '?t=' + Date.now();
+                    retryScript.crossOrigin = 'anonymous';
+                    retryScript.async = true;
+                    retryScript.onload = () => setTimeout(resolve, 800);
+                    retryScript.onerror = () => {
+                        if (attempts >= maxAttempts - 1) {
+                            reject(new Error(`Failed to load script after ${maxAttempts} attempts: ${src}`));
+                        }
+                    };
+                    document.head.appendChild(retryScript);
+                }, 500);
+            } else {
+                reject(new Error(`Failed to load script after ${maxAttempts} attempts: ${src}`));
+            }
         };
+        
         document.head.appendChild(script);
     });
 }
@@ -978,16 +1031,31 @@ function detectSwipe(landmarks) {
     }
 }
 
-// Update gesture state from MediaPipe Hands results
+// Update gesture state from MediaPipe Hands results with improved tracking
 function updateGestureFromHands(results) {
     const hands = [];
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    
+    // Validate results structure
+    if (!results || !results.multiHandLandmarks) {
+        handDetected = false;
+        updateGestureStatus(false);
+        handOpenness = lerp(handOpenness, 0.5, 0.05);
+        return;
+    }
+
+    // Extract hands with confidence filtering
+    if (results.multiHandLandmarks.length > 0) {
         const handednessArr = results.multiHandedness || [];
         results.multiHandLandmarks.forEach((lm, idx) => {
+            // Validate landmarks
+            if (!lm || lm.length < 21) return;
+            
             const handed = handednessArr[idx];
-            const label = handed?.label || handed?.displayName || 'Unknown';
-            const score = handed?.score ?? 1;
-            if (score >= CONFIDENCE_MIN) {
+            const label = handed?.label || handed?.displayName || `Hand${idx}`;
+            const score = handed?.score ?? 0.9;
+            
+            // Lower confidence threshold for better detection
+            if (score >= 0.4) {
                 hands.push({ landmarks: lm, label, score });
             }
         });
@@ -996,8 +1064,8 @@ function updateGestureFromHands(results) {
     if (hands.length === 0) {
         handDetected = false;
         updateGestureStatus(false);
-        // Slowly return to default state
-        handOpenness = lerp(handOpenness, 0.5, 0.05);
+        // Smoothly return to neutral state
+        handOpenness = lerp(handOpenness, 0.5, 0.03);
         gestureState.type = 'open';
         gestureState.value = handOpenness;
         updateGestureEffects();
@@ -1006,32 +1074,49 @@ function updateGestureFromHands(results) {
 
     // Store for preview overlay
     lastPreviewHands = hands;
-
     handDetected = true;
 
     if (enableMultipleHands && hands.length >= 2) {
-        // Process both hands with role locking
+        // Dual hand mode
         updateMultipleHandsStable(hands);
     } else {
-        // Single hand: rotation only
+        // Single hand mode with improved gesture detection
         const hand = hands[0];
-        const gestures = detectAdvancedGestures(hand.landmarks);
-        detectSwipe(hand.landmarks);
+        try {
+            const gestures = detectAdvancedGestures(hand.landmarks);
+            detectSwipe(hand.landmarks);
 
-        // Apply rotation with deadzone
-        let rot = gestures.rotationAngle;
-        if (Math.abs(rot) < ROTATION_DEADZONE) rot = 0;
-        gestureState.rotationAngle = lerp(gestureState.rotationAngle, rot, SMOOTH_ALPHA);
-        gestureState.type = 'rotation';
-        gestureState.value = Math.abs(gestureState.rotationAngle);
+            // Calculate hand openness for natural control
+            const wrist = hand.landmarks[0];
+            const fingerTips = [
+                hand.landmarks[4],   // Thumb
+                hand.landmarks[8],   // Index
+                hand.landmarks[12],  // Middle
+                hand.landmarks[16],  // Ring
+                hand.landmarks[20]   // Pinky
+            ];
 
-        animationTargets.rotation = gestureState.rotationAngle * gestureSensitivity;
-        animationTargets.scale = 1.0;
-        animationTargets.expansion = 0;
-        animationTargets.dispersion = 0;
+            const distances = fingerTips.map(tip => calculateDistance(wrist, tip));
+            const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+            const opennessRaw = Math.min(1, Math.max(0, (avgDistance - 0.15) / 0.35));
+            handOpenness = lerp(handOpenness, opennessRaw, SMOOTH_ALPHA);
 
-        updateGestureStatus(true, { type: 'rotation', value: Math.abs(animationTargets.rotation) });
-        updateGestureEffects();
+            // Apply gestures to animation targets
+            animationTargets.scale = lerp(0.5, 2.0, handOpenness) * gestureSensitivity;
+            animationTargets.expansion = handOpenness * 0.5 * gestureSensitivity;
+            animationTargets.dispersion = Math.max(0, (handOpenness - 0.3) * 0.5 * gestureSensitivity);
+
+            // Rotation from hand orientation
+            let rot = gestures.rotationAngle;
+            if (Math.abs(rot) < ROTATION_DEADZONE) rot = 0;
+            animationTargets.rotation = lerp(animationTargets.rotation, rot * gestureSensitivity, 0.15);
+
+            updateGestureStatus(true, { type: 'open', value: handOpenness });
+            updateGestureEffects();
+        } catch (e) {
+            console.warn('Gesture detection error:', e.message);
+            updateGestureStatus(true);
+        }
     }
 }
 
