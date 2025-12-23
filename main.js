@@ -873,8 +873,10 @@ async function initHandTracking() {
 
 // Manual frame processing loop - more reliable than Camera API
 function processHandTrackingFrames() {
-    if (!handTrackingActive || !handTracking || !video || video.readyState !== 2) {
-        requestAnimationFrame(processHandTrackingFrames);
+    if (!handTrackingActive || !handTracking || !video) {
+        if (handTrackingActive) {
+            requestAnimationFrame(processHandTrackingFrames);
+        }
         return;
     }
 
@@ -883,7 +885,10 @@ function processHandTrackingFrames() {
     // Process every FRAME_SKIP frames for performance
     if (frameCount % FRAME_SKIP === 0) {
         try {
-            handTracking.send({ image: video });
+            // Check video is ready and has data
+            if (video.readyState === 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+                handTracking.send({ image: video });
+            }
         } catch (error) {
             console.warn('Frame processing error (will recover):', error.message);
         }
@@ -1036,26 +1041,25 @@ function updateGestureFromHands(results) {
     const hands = [];
     
     // Validate results structure
-    if (!results || !results.multiHandLandmarks) {
-        handDetected = false;
-        updateGestureStatus(false);
-        handOpenness = lerp(handOpenness, 0.5, 0.05);
+    if (!results) {
         return;
     }
 
     // Extract hands with confidence filtering
-    if (results.multiHandLandmarks.length > 0) {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const handednessArr = results.multiHandedness || [];
         results.multiHandLandmarks.forEach((lm, idx) => {
-            // Validate landmarks
-            if (!lm || lm.length < 21) return;
+            // Validate landmarks - need exactly 21 landmarks for a hand
+            if (!lm || lm.length < 21) {
+                return;
+            }
             
             const handed = handednessArr[idx];
             const label = handed?.label || handed?.displayName || `Hand${idx}`;
-            const score = handed?.score ?? 0.9;
+            const score = handed?.score ?? 0.95;
             
-            // Lower confidence threshold for better detection
-            if (score >= 0.4) {
+            // Accept hand if has confidence score (very permissive)
+            if (score > 0) {
                 hands.push({ landmarks: lm, label, score });
             }
         });
@@ -1065,7 +1069,7 @@ function updateGestureFromHands(results) {
         handDetected = false;
         updateGestureStatus(false);
         // Smoothly return to neutral state
-        handOpenness = lerp(handOpenness, 0.5, 0.03);
+        handOpenness = lerp(handOpenness, 0.5, 0.02);
         gestureState.type = 'open';
         gestureState.value = handOpenness;
         updateGestureEffects();
@@ -1858,6 +1862,60 @@ function loadLastSession() {
         console.error('Failed to load last session', e);
         return false;
     }
+}
+
+// Update physics simulation
+function updatePhysics(deltaTime) {
+    if (!particleVelocities || !particleGeometry) return;
+
+    const positions = particleGeometry.attributes.position.array;
+    const originalPositions = particleGeometry.userData.originalPositions;
+
+    // Update each particle
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        
+        // Apply forces
+        particleVelocities[i3 + 1] += gravity * deltaTime; // Gravity (Y axis)
+        particleVelocities[i3] += animationTargets.windX * deltaTime; // Wind X
+        particleVelocities[i3 + 2] += animationTargets.windZ * deltaTime; // Wind Z
+
+        // Apply damping
+        particleVelocities[i3] *= damping;
+        particleVelocities[i3 + 1] *= damping;
+        particleVelocities[i3 + 2] *= damping;
+
+        // Update positions
+        positions[i3] += particleVelocities[i3];
+        positions[i3 + 1] += particleVelocities[i3 + 1];
+        positions[i3 + 2] += particleVelocities[i3 + 2];
+
+        // Boundary collision
+        const speed = Math.sqrt(
+            particleVelocities[i3] ** 2 +
+            particleVelocities[i3 + 1] ** 2 +
+            particleVelocities[i3 + 2] ** 2
+        );
+
+        if (Math.abs(positions[i3]) > boundarySize) {
+            positions[i3] = -positions[i3] * 0.9;
+            particleVelocities[i3] *= -0.8;
+        }
+        if (Math.abs(positions[i3 + 1]) > boundarySize) {
+            positions[i3 + 1] = -positions[i3 + 1] * 0.9;
+            particleVelocities[i3 + 1] *= -0.8;
+        }
+        if (Math.abs(positions[i3 + 2]) > boundarySize) {
+            positions[i3 + 2] = -positions[i3 + 2] * 0.9;
+            particleVelocities[i3 + 2] *= -0.8;
+        }
+    }
+
+    particleGeometry.attributes.position.needsUpdate = true;
+
+    // Apply gesture effects on top of physics
+    currentScale = lerp(currentScale, animationTargets.scale, 0.1);
+    applyGestureEffects();
 }
 
 // Animation loop
