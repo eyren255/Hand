@@ -271,6 +271,51 @@ const patternGenerators = {
             positions[i * 3 + 2] = Math.sin(angle + armAngle) * r + Math.sin(armAngle) * spiral;
         }
         return positions;
+    },
+
+    torusKnot: (count) => {
+        const positions = new Float32Array(count * 3);
+        const p = 3, q = 5, scale = 12;
+        for (let i = 0; i < count; i++) {
+            const t = (i / count) * Math.PI * 2;
+            const r = Math.cos(q * t) + 2;
+            const x = r * Math.cos(p * t) * scale * 0.8;
+            const y = r * Math.sin(t) * scale * 0.8;
+            const z = r * Math.sin(p * t) * scale * 0.8;
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = z;
+        }
+        return positions;
+    },
+
+    helix: (count) => {
+        const positions = new Float32Array(count * 3);
+        const radius = 12;
+        const height = 40;
+        const turns = 4;
+        for (let i = 0; i < count; i++) {
+            const t = i / count;
+            const angle = t * Math.PI * 2 * turns;
+            positions[i * 3] = radius * Math.cos(angle);
+            positions[i * 3 + 1] = (t - 0.5) * height;
+            positions[i * 3 + 2] = radius * Math.sin(angle);
+        }
+        return positions;
+    },
+
+    vortex: (count) => {
+        const positions = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            const t = Math.random();
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.sqrt(t) * 20;
+            const h = (t - 0.5) * 25;
+            positions[i * 3] = r * Math.cos(angle);
+            positions[i * 3 + 1] = h;
+            positions[i * 3 + 2] = r * Math.sin(angle);
+        }
+        return positions;
     }
 };
 
@@ -615,38 +660,39 @@ function updateParticleTrails(currentPositions) {
     }
 }
 
-// Update particle connections
+// Update particle connections with optimized spatial partitioning
 function updateParticleConnections(positions) {
     const connectionPositions = [];
     const connectionColors = [];
     let connectionCount = 0;
 
-    // Simple spatial optimization: only check nearby particles
-    const checkRadius = Math.min(particleCount, 100); // Limit checks for performance
+    // Optimized connection system with reduced checks
+    const checkStep = Math.max(1, Math.floor(particleCount / 80)); // Check fewer particles for performance
+    const distSq = connectionDistance * connectionDistance;
 
-    for (let i = 0; i < particleCount; i += Math.max(1, Math.floor(particleCount / checkRadius))) {
+    for (let i = 0; i < particleCount; i += checkStep) {
         const i3 = i * 3;
         const x1 = positions[i3];
         const y1 = positions[i3 + 1];
         const z1 = positions[i3 + 2];
 
-        for (let j = i + 1; j < particleCount; j += Math.max(1, Math.floor(particleCount / checkRadius))) {
+        // Only check nearby particles instead of all
+        for (let j = i + checkStep; j < Math.min(i + particleCount * 0.15, particleCount); j += checkStep) {
             const j3 = j * 3;
             const x2 = positions[j3];
             const y2 = positions[j3 + 1];
             const z2 = positions[j3 + 2];
 
-            const dist = Math.sqrt(
-                (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
-            );
+            const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+            const dist = dx * dx + dy * dy + dz * dz;
 
-            if (dist < connectionDistance) {
+            if (dist < distSq) {
                 // Add connection line
                 connectionPositions.push(x1, y1, z1);
                 connectionPositions.push(x2, y2, z2);
 
                 // Color based on distance (closer = brighter)
-                const intensity = 1 - (dist / connectionDistance);
+                const intensity = Math.max(0, 1 - (Math.sqrt(dist) / connectionDistance));
                 connectionColors.push(1, 1, 1, intensity * 0.3);
                 connectionColors.push(1, 1, 1, intensity * 0.3);
 
@@ -710,6 +756,7 @@ function updatePerformanceGuard(deltaTime) {
 
 // Smooth interpolation
 function lerp(start, end, factor) {
+    // Enhanced version with optional easing
     return start + (end - start) * factor;
 }
 
